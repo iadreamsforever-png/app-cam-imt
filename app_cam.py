@@ -243,7 +243,10 @@ def limpar_simulacao():
         st.session_state.pop(key, None)
 
 def limpar_pratica():
-    for key in ("pratica_atual", "pratica_respondido", "pratica_acertou"):
+    for key in (
+        "pratica_atual", "pratica_respondido", "pratica_acertou",
+        "pratica_historico", "pratica_rever_indice",
+    ):
         st.session_state.pop(key, None)
 
 def processar_resposta(q, escolha):
@@ -256,17 +259,65 @@ def processar_resposta(q, escolha):
     st.session_state.perguntas_vistas.add(q["id"])
     return acertou
 
-def mostrar_pergunta(q, key_prefix=""):
+def atualizar_estatisticas_global(q, acertou, reverso=False):
+    if reverso:
+        if acertou:
+            st.session_state.acertos = max(0, st.session_state.acertos - 1)
+        else:
+            st.session_state.erros = max(0, st.session_state.erros - 1)
+    else:
+        if acertou:
+            st.session_state.acertos += 1
+        else:
+            st.session_state.erros += 1
+        st.session_state.perguntas_vistas.add(q["id"])
+
+def registar_resposta_simulacao(q, escolha, indice):
+    acertou = escolha.lower() == q["resposta_correta"].lower()
+    respostas = st.session_state.simulacao_respostas
+
+    while len(respostas) <= indice:
+        respostas.append(None)
+
+    anterior = respostas[indice]
+    if anterior is not None:
+        if anterior["acertou"]:
+            st.session_state.acertos_sim -= 1
+        atualizar_estatisticas_global(q, anterior["acertou"], reverso=True)
+        if acertou:
+            st.session_state.acertos += 1
+        else:
+            st.session_state.erros += 1
+    else:
+        atualizar_estatisticas_global(q, acertou)
+
+    respostas[indice] = {"pergunta": q, "escolha": escolha, "acertou": acertou}
+    if acertou:
+        st.session_state.acertos_sim += 1
+
+    return acertou
+
+def mostrar_pergunta(q, key_suffix="", escolha_previa=None):
     st.markdown(f'<p class="questao-texto">{q["pergunta"]}</p>', unsafe_allow_html=True)
     st.markdown('<div class="bloco-opcoes"></div>', unsafe_allow_html=True)
     opcoes = ["A", "B", "C", "D"]
+    index = None
+    if escolha_previa:
+        prev = str(escolha_previa).upper()
+        if prev in opcoes:
+            index = opcoes.index(prev)
     return st.radio(
         "Escolha a resposta:",
         opcoes,
+        index=index,
         format_func=lambda x: f"{x}) {q['opcao' + x]}",
-        key=f"{key_prefix}escolha_{q['id']}",
+        key=f"escolha_{key_suffix}",
         label_visibility="collapsed",
     )
+
+def mostrar_resposta_escolhida(q, escolha):
+    letra = str(escolha).upper()
+    st.markdown(f"**A tua resposta:** {letra}) {q[f'opcao{letra}']}")
 
 def mostrar_feedback(q, acertou):
     if acertou:
@@ -356,25 +407,28 @@ elif st.session_state.pagina == "simulacao":
     total_sim = len(st.session_state.simulacao_perguntas)
 
     if st.session_state.indice < total_sim:
-        q = st.session_state.simulacao_perguntas[st.session_state.indice]
+        idx = st.session_state.indice
+        q = st.session_state.simulacao_perguntas[idx]
+        respostas = st.session_state.simulacao_respostas
+        resposta_previa = respostas[idx] if idx < len(respostas) and respostas[idx] else None
 
         titulo_discreto("Simulação completa")
-        meta_linha(f"Pergunta {st.session_state.indice + 1} de {total_sim}")
-        st.progress((st.session_state.indice + 1) / total_sim)
+        meta_linha(f"Pergunta {idx + 1} de {total_sim}")
+        st.progress((idx + 1) / total_sim)
 
-        escolha = mostrar_pergunta(q, key_prefix="sim_")
+        escolha_prev = resposta_previa["escolha"] if resposta_previa else None
+        escolha = mostrar_pergunta(q, key_suffix=f"sim_{idx}", escolha_previa=escolha_prev)
 
-        if st.button("Responder", type="primary", use_container_width=True):
-            acertou = processar_resposta(q, escolha)
-            if acertou:
-                st.session_state.acertos_sim += 1
-            st.session_state.simulacao_respostas.append({
-                "pergunta": q,
-                "escolha": escolha,
-                "acertou": acertou,
-            })
-            st.session_state.indice += 1
-            st.rerun()
+        col_voltar, col_responder = st.columns(2)
+        with col_voltar:
+            if idx > 0 and st.button("← Anterior", use_container_width=True):
+                st.session_state.indice -= 1
+                st.rerun()
+        with col_responder:
+            if st.button("Responder", type="primary", use_container_width=True):
+                registar_resposta_simulacao(q, escolha, idx)
+                st.session_state.indice += 1
+                st.rerun()
 
     else:
         st.balloons()
@@ -419,8 +473,9 @@ elif st.session_state.pagina == "revisao_sim":
         if st.button("← Voltar ao Início", use_container_width=True):
             ir_para("inicio")
     else:
-        acertos = sum(1 for r in respostas if r["acertou"])
-        erros = len(respostas) - acertos
+        respostas_validas = [r for r in respostas if r is not None]
+        acertos = sum(1 for r in respostas_validas if r["acertou"])
+        erros = len(respostas_validas) - acertos
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("Total", len(respostas))
@@ -435,18 +490,20 @@ elif st.session_state.pagina == "revisao_sim":
                 ["Todas", "Apenas erradas", "Apenas corretas"],
             )
 
-        lista = respostas
+        lista = respostas_validas
         if filtro_rev == "Apenas erradas":
-            lista = [r for r in respostas if not r["acertou"]]
+            lista = [r for r in respostas_validas if not r["acertou"]]
         elif filtro_rev == "Apenas corretas":
-            lista = [r for r in respostas if r["acertou"]]
+            lista = [r for r in respostas_validas if r["acertou"]]
 
         st.write(f"**{len(lista)}** questões")
         st.markdown("---")
 
-        for numero, item in enumerate(respostas, 1):
-            if item not in lista:
+        numero = 0
+        for item in respostas:
+            if item is None or item not in lista:
                 continue
+            numero += 1
             mostrar_revisao_resposta(item, numero)
 
         st.markdown("---")
@@ -459,6 +516,9 @@ elif st.session_state.pagina == "revisao_sim":
 
 # ====================== PRÁTICA LIVRE ======================
 elif st.session_state.pagina == "pratica_livre":
+    if "pratica_historico" not in st.session_state:
+        st.session_state.pratica_historico = []
+
     col_topo, col_filtro = st.columns([5, 1])
     with col_topo:
         titulo_discreto("Prática livre")
@@ -475,55 +535,108 @@ elif st.session_state.pagina == "pratica_livre":
     elif filtro == "Já vistas":
         pool = [p for p in pool if p["id"] in st.session_state.perguntas_vistas]
 
+    historico = st.session_state.pratica_historico
+    em_revisao = st.session_state.get("pratica_rever_indice") is not None
+
     mostrando_feedback = (
         st.session_state.get("pratica_respondido")
         and st.session_state.get("pratica_atual") is not None
+        and not em_revisao
     )
 
-    if not pool and not mostrando_feedback:
+    if not pool and not mostrando_feedback and not em_revisao:
         st.warning("Nenhuma pergunta disponível com este filtro.")
         if st.button("← Voltar ao Início", use_container_width=True):
             limpar_pratica()
             ir_para("inicio")
     else:
-        fora_do_filtro = (
-            "pratica_atual" not in st.session_state
-            or st.session_state.pratica_atual not in {p["id"] for p in pool}
-        )
-        if fora_do_filtro and not st.session_state.get("pratica_respondido"):
-            if pool:
-                st.session_state.pratica_atual = random.choice(pool)["id"]
-                st.session_state.pratica_respondido = False
-                st.session_state.pop("pratica_acertou", None)
-            else:
-                st.session_state.pop("pratica_atual", None)
+        if em_revisao:
+            rev_idx = st.session_state.pratica_rever_indice
+            item = historico[rev_idx]
+            q = item["pergunta"]
 
-        if st.session_state.get("pratica_atual") is not None:
-            q = next(p for p in perguntas if p["id"] == st.session_state.pratica_atual)
+            meta_linha(
+                f"Revisão {rev_idx + 1} de {len(historico)} · "
+                f"Questão #{q['id']}"
+            )
 
-            total_biblioteca = len(perguntas)
-            faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
+            st.markdown(f'<p class="questao-texto">{q["pergunta"]}</p>', unsafe_allow_html=True)
+            mostrar_resposta_escolhida(q, item["escolha"])
+            mostrar_feedback(q, item["acertou"])
 
-            meta_linha(f"Questão #{q['id']} · {len(pool)} no filtro · faltam {faltam_responder}/{total_biblioteca}")
-
-            escolha = mostrar_pergunta(q, key_prefix="prat_")
-
-            if not st.session_state.get("pratica_respondido"):
-                if st.button("Responder", type="primary", use_container_width=True):
-                    st.session_state.pratica_acertou = processar_resposta(q, escolha)
-                    st.session_state.pratica_respondido = True
+            col_ant, col_seg, col_cont = st.columns(3)
+            with col_ant:
+                if rev_idx > 0 and st.button("← Anterior", use_container_width=True):
+                    st.session_state.pratica_rever_indice = rev_idx - 1
                     st.rerun()
-            else:
-                mostrar_feedback(q, st.session_state.pratica_acertou)
-
-                if st.button("Avançar →", type="primary", use_container_width=True):
+            with col_seg:
+                if rev_idx < len(historico) - 1 and st.button("Seguinte →", use_container_width=True):
+                    st.session_state.pratica_rever_indice = rev_idx + 1
+                    st.rerun()
+            with col_cont:
+                if st.button("Continuar", type="primary", use_container_width=True):
+                    st.session_state.pop("pratica_rever_indice", None)
+                    st.rerun()
+        else:
+            fora_do_filtro = (
+                "pratica_atual" not in st.session_state
+                or st.session_state.pratica_atual not in {p["id"] for p in pool}
+            )
+            if fora_do_filtro and not st.session_state.get("pratica_respondido"):
+                if pool:
+                    st.session_state.pratica_atual = random.choice(pool)["id"]
                     st.session_state.pratica_respondido = False
                     st.session_state.pop("pratica_acertou", None)
-                    if pool:
-                        st.session_state.pratica_atual = random.choice(pool)["id"]
-                    else:
-                        st.session_state.pop("pratica_atual", None)
-                    st.rerun()
+                else:
+                    st.session_state.pop("pratica_atual", None)
+
+            if st.session_state.get("pratica_atual") is not None:
+                q = next(p for p in perguntas if p["id"] == st.session_state.pratica_atual)
+
+                total_biblioteca = len(perguntas)
+                faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
+
+                meta_linha(
+                    f"Questão #{q['id']} · {len(pool)} no filtro · "
+                    f"faltam {faltam_responder}/{total_biblioteca}"
+                )
+
+                escolha = mostrar_pergunta(q, key_suffix=f"prat_{q['id']}")
+
+                if not st.session_state.get("pratica_respondido"):
+                    col_voltar, col_resp = st.columns(2)
+                    with col_voltar:
+                        if historico and st.button("← Rever anteriores", use_container_width=True):
+                            st.session_state.pratica_rever_indice = len(historico) - 1
+                            st.rerun()
+                    with col_resp:
+                        if st.button("Responder", type="primary", use_container_width=True):
+                            acertou = processar_resposta(q, escolha)
+                            st.session_state.pratica_acertou = acertou
+                            st.session_state.pratica_respondido = True
+                            historico.append({
+                                "pergunta": q,
+                                "escolha": escolha,
+                                "acertou": acertou,
+                            })
+                            st.rerun()
+                else:
+                    mostrar_feedback(q, st.session_state.pratica_acertou)
+
+                    col_voltar, col_avancar = st.columns(2)
+                    with col_voltar:
+                        if historico and st.button("← Rever anteriores", use_container_width=True):
+                            st.session_state.pratica_rever_indice = len(historico) - 1
+                            st.rerun()
+                    with col_avancar:
+                        if st.button("Avançar →", type="primary", use_container_width=True):
+                            st.session_state.pratica_respondido = False
+                            st.session_state.pop("pratica_acertou", None)
+                            if pool:
+                                st.session_state.pratica_atual = random.choice(pool)["id"]
+                            else:
+                                st.session_state.pop("pratica_atual", None)
+                            st.rerun()
 
         if st.button("← Voltar ao Início", use_container_width=True):
             limpar_pratica()
