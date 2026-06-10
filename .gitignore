@@ -3,3 +3,12 @@ __pycache__/
 .streamlit/secrets.toml
 terminals/
 *.bat
+_apk/
+imt_pdfs/
+questoes_backup*.xlsx
+questoes_revisao.xlsx
+_*.json
+_*.txt
+!_resumo_revisao.json
+_*.html
+_*.md
