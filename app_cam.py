@@ -53,7 +53,6 @@ def aplicar_estilo_mobile():
         }
         h1 { font-size: 1.65rem !important; font-weight: 700 !important; }
         h2 { font-size: 1.35rem !important; font-weight: 600 !important; }
-        h3 { font-size: 1.1rem !important; line-height: 1.5 !important; }
         p, label, .stMarkdown { font-size: 1rem; line-height: 1.55; }
         div[data-testid="stMetric"] {
             background: #FFFFFF;
@@ -76,9 +75,7 @@ def aplicar_estilo_mobile():
             font-weight: 600 !important;
             padding: 0.6rem 1rem !important;
         }
-        .stRadio > div {
-            gap: 0.5rem;
-        }
+        .stRadio > div { gap: 0.5rem; }
         .stRadio label {
             background: #FFFFFF;
             border: 1px solid #E2E8F0;
@@ -90,7 +87,7 @@ def aplicar_estilo_mobile():
         }
         .stRadio label:hover { border-color: #2563EB; }
         div[data-testid="stProgress"] > div > div {
-            height: 10px;
+            height: 8px;
             border-radius: 999px;
         }
         details[data-testid="stExpander"] {
@@ -103,27 +100,49 @@ def aplicar_estilo_mobile():
             padding: 0.85rem 1rem;
             font-size: 0.95rem;
         }
-        .info-chip {
-            background: #FFFFFF;
-            border: 1px solid #E2E8F0;
-            border-radius: 12px;
-            padding: 0.75rem 1rem;
-            margin: 0.35rem 0 0.85rem 0;
-            font-size: 0.92rem;
-            color: #334155;
-            line-height: 1.5;
+        .titulo-discreto {
+            color: #94A3B8;
+            font-size: 0.72rem;
+            font-weight: 500;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin: 0 0 0.35rem 0;
         }
-        .info-chip strong { color: #0F172A; }
+        .meta-discreto {
+            color: #94A3B8;
+            font-size: 0.72rem;
+            text-align: center;
+            margin: 0.1rem 0 0.35rem 0;
+            line-height: 1.4;
+        }
+        .questao-texto {
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: #0F172A;
+            line-height: 1.55;
+            text-align: center;
+            margin: 1rem 0 1.25rem 0;
+            padding: 0 0.25rem;
+        }
         .page-subtitle {
             color: #64748B;
             font-size: 0.95rem;
             margin-top: -0.5rem;
             margin-bottom: 1rem;
         }
+        .element-container:has(.bloco-opcoes) + .element-container div[data-testid="stRadio"] label {
+            background: #FFFFFF;
+            border: 1.5px solid #E2E8F0;
+            border-radius: 14px;
+            padding: 1rem 1.1rem !important;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+        }
         @media (max-width: 640px) {
             .block-container {
-                padding-left: 1rem;
-                padding-right: 1rem;
+                padding-top: 0.75rem;
+                padding-left: 0.85rem;
+                padding-right: 0.85rem;
             }
             div[data-testid="column"] {
                 width: 100% !important;
@@ -131,7 +150,57 @@ def aplicar_estilo_mobile():
                 min-width: 100% !important;
             }
             h1 { font-size: 1.45rem !important; }
-            h3 { font-size: 1.05rem !important; }
+            .titulo-discreto {
+                font-size: 0.62rem;
+                margin-bottom: 0.2rem;
+            }
+            .meta-discreto {
+                font-size: 0.62rem;
+                color: #CBD5E1;
+            }
+            .questao-texto {
+                font-size: 1.12rem;
+                margin: 1.75rem 0 1.35rem 0;
+                padding: 0 0.15rem;
+            }
+            .element-container:has(.bloco-opcoes) + .element-container div[data-testid="stRadio"] {
+                margin-top: 0.25rem;
+            }
+            .element-container:has(.bloco-opcoes) + .element-container div[data-testid="stRadio"] label {
+                padding: 1.05rem 1.15rem !important;
+                font-size: 0.98rem !important;
+                margin: 0.35rem 0 !important;
+            }
+            .element-container:has(.bloco-opcoes) + .element-container div[data-testid="stRadio"] label p {
+                font-size: 0.98rem !important;
+                line-height: 1.5 !important;
+            }
+            div[data-testid="stProgress"] {
+                opacity: 0.45;
+                margin-bottom: 0.15rem !important;
+            }
+            div[data-testid="stProgress"] > div > div {
+                height: 4px;
+            }
+            [data-testid="stPopover"] button {
+                min-height: 28px !important;
+                padding: 0.15rem 0.55rem !important;
+                font-size: 0.75rem !important;
+                color: #94A3B8 !important;
+                background: transparent !important;
+                border: 1px solid #E2E8F0 !important;
+            }
+            .stButton > button[kind="secondary"] {
+                background: transparent !important;
+                border: none !important;
+                color: #94A3B8 !important;
+                min-height: 34px !important;
+                font-size: 0.78rem !important;
+                box-shadow: none !important;
+            }
+            .stButton > button[data-testid="baseButton-primary"] {
+                margin-top: 0.75rem;
+            }
             .stRadio > div[role="radiogroup"] {
                 flex-direction: column !important;
             }
@@ -139,8 +208,11 @@ def aplicar_estilo_mobile():
     </style>
     """, unsafe_allow_html=True)
 
-def info_chip(texto):
-    st.markdown(f'<div class="info-chip">{texto}</div>', unsafe_allow_html=True)
+def titulo_discreto(texto):
+    st.markdown(f'<p class="titulo-discreto">{texto}</p>', unsafe_allow_html=True)
+
+def meta_linha(texto):
+    st.markdown(f'<p class="meta-discreto">{texto}</p>', unsafe_allow_html=True)
 
 aplicar_estilo_mobile()
 
@@ -185,7 +257,8 @@ def processar_resposta(q, escolha):
     return acertou
 
 def mostrar_pergunta(q, key_prefix=""):
-    st.markdown(f"### {q['pergunta']}")
+    st.markdown(f'<p class="questao-texto">{q["pergunta"]}</p>', unsafe_allow_html=True)
+    st.markdown('<div class="bloco-opcoes"></div>', unsafe_allow_html=True)
     opcoes = ["A", "B", "C", "D"]
     return st.radio(
         "Escolha a resposta:",
@@ -273,8 +346,6 @@ if st.session_state.pagina == "inicio":
 
 # ====================== SIMULAÇÃO COMPLETA ======================
 elif st.session_state.pagina == "simulacao":
-    st.header("🚀 Simulação Completa")
-
     if "simulacao_perguntas" not in st.session_state:
         total = min(60, len(perguntas))
         st.session_state.simulacao_perguntas = random.sample(perguntas, total)
@@ -287,8 +358,9 @@ elif st.session_state.pagina == "simulacao":
     if st.session_state.indice < total_sim:
         q = st.session_state.simulacao_perguntas[st.session_state.indice]
 
+        titulo_discreto("Simulação completa")
+        meta_linha(f"Pergunta {st.session_state.indice + 1} de {total_sim}")
         st.progress((st.session_state.indice + 1) / total_sim)
-        info_chip(f"<strong>Pergunta {st.session_state.indice + 1} de {total_sim}</strong>")
 
         escolha = mostrar_pergunta(q, key_prefix="sim_")
 
@@ -357,10 +429,11 @@ elif st.session_state.pagina == "revisao_sim":
         with col3:
             st.metric("Erros", erros)
 
-        filtro_rev = st.radio(
-            "Mostrar:",
-            ["Todas", "Apenas erradas", "Apenas corretas"],
-        )
+        with st.popover("⋯ filtro"):
+            filtro_rev = st.radio(
+                "Mostrar:",
+                ["Todas", "Apenas erradas", "Apenas corretas"],
+            )
 
         lista = respostas
         if filtro_rev == "Apenas erradas":
@@ -386,13 +459,15 @@ elif st.session_state.pagina == "revisao_sim":
 
 # ====================== PRÁTICA LIVRE ======================
 elif st.session_state.pagina == "pratica_livre":
-    st.header("📝 Prática Livre")
-    st.caption("Responde questões aleatórias sem limite de tempo.")
-
-    filtro = st.radio(
-        "Filtrar perguntas:",
-        ["Todas", "Ainda não vistas", "Já vistas"],
-    )
+    col_topo, col_filtro = st.columns([5, 1])
+    with col_topo:
+        titulo_discreto("Prática livre")
+    with col_filtro:
+        with st.popover("⋯"):
+            filtro = st.radio(
+                "Filtrar perguntas:",
+                ["Todas", "Ainda não vistas", "Já vistas"],
+            )
 
     pool = perguntas
     if filtro == "Ainda não vistas":
@@ -429,12 +504,7 @@ elif st.session_state.pagina == "pratica_livre":
             total_biblioteca = len(perguntas)
             faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
 
-            info_chip(
-                f"<strong>Questão #{q['id']}</strong> — {len(pool)} disponíveis no filtro atual"
-            )
-            info_chip(
-                f"<strong>Faltam responder: {faltam_responder} de {total_biblioteca}</strong>"
-            )
+            meta_linha(f"Questão #{q['id']} · {len(pool)} no filtro · faltam {faltam_responder}/{total_biblioteca}")
 
             escolha = mostrar_pergunta(q, key_prefix="prat_")
 
