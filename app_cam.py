@@ -224,6 +224,28 @@ def carregar_perguntas():
 
 perguntas = carregar_perguntas()
 
+TEMAS_EXAME = {
+    "Todas": None,
+    "Passageiros": ("passageiros", "misto"),
+    "Mercadorias": ("mercadorias", "misto"),
+    "Comum (motorista)": ("comum",),
+}
+
+def filtrar_por_tema(pool, tema):
+    chaves = TEMAS_EXAME.get(tema)
+    if not chaves:
+        return pool
+    return [p for p in pool if p.get("tema_exame", "comum") in chaves]
+
+def rotulo_tema(q):
+    tema = q.get("tema_exame", "comum")
+    return {
+        "passageiros": "passageiros",
+        "mercadorias": "mercadorias",
+        "misto": "misto",
+        "comum": "comum",
+    }.get(tema, tema)
+
 # ====================== ESTADO ======================
 if "pagina" not in st.session_state:
     st.session_state.pagina = "inicio"
@@ -304,7 +326,14 @@ def mostrar_revisao_resposta(item, numero):
 # ====================== TELA INICIAL ======================
 if st.session_state.pagina == "inicio":
     st.title("🚛 Simulados CAM - IMT")
-    st.markdown('<p class="page-subtitle">Preparação para o exame oficial do IMT</p>', unsafe_allow_html=True)
+    st.markdown('<p class="page-subtitle">Preparação para o exame CAM do IMT — mercadorias e passageiros</p>', unsafe_allow_html=True)
+
+    temas = [p.get("tema_exame", "comum") for p in perguntas]
+    st.caption(
+        f"{len(perguntas)} questões · "
+        f"{sum(1 for t in temas if t in ('passageiros', 'misto'))} com passageiros · "
+        f"{sum(1 for t in temas if t in ('mercadorias', 'misto'))} com mercadorias"
+    )
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -468,12 +497,16 @@ elif st.session_state.pagina == "pratica_livre":
                 "Filtrar perguntas:",
                 ["Todas", "Ainda não vistas", "Já vistas"],
             )
+            tema_filtro = st.radio(
+                "Tema do exame:",
+                list(TEMAS_EXAME.keys()),
+            )
 
-    pool = perguntas
+    pool = filtrar_por_tema(perguntas, tema_filtro)
     if filtro == "Ainda não vistas":
-        pool = [p for p in perguntas if p["id"] not in st.session_state.perguntas_vistas]
+        pool = [p for p in pool if p["id"] not in st.session_state.perguntas_vistas]
     elif filtro == "Já vistas":
-        pool = [p for p in perguntas if p["id"] in st.session_state.perguntas_vistas]
+        pool = [p for p in pool if p["id"] in st.session_state.perguntas_vistas]
 
     mostrando_feedback = (
         st.session_state.get("pratica_respondido")
@@ -504,7 +537,10 @@ elif st.session_state.pagina == "pratica_livre":
             total_biblioteca = len(perguntas)
             faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
 
-            meta_linha(f"Questão #{q['id']} · {len(pool)} no filtro · faltam {faltam_responder}/{total_biblioteca}")
+            meta_linha(
+                f"Questão #{q['id']} · {rotulo_tema(q)} · "
+                f"{len(pool)} no filtro · faltam {faltam_responder}/{total_biblioteca}"
+            )
 
             escolha = mostrar_pergunta(q, key_prefix="prat_")
 
@@ -535,9 +571,13 @@ elif st.session_state.pagina == "biblioteca":
     st.caption(f"{len(perguntas)} questões no total")
 
     busca = st.text_input("🔍 Pesquisar", placeholder="Palavras-chave da pergunta...")
-    filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
+    col_estado, col_tema = st.columns(2)
+    with col_estado:
+        filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
+    with col_tema:
+        tema_bib = st.selectbox("Tema", list(TEMAS_EXAME.keys()))
 
-    filtradas = perguntas
+    filtradas = filtrar_por_tema(perguntas, tema_bib)
     if busca:
         termo = busca.lower()
         filtradas = [p for p in filtradas if termo in p["pergunta"].lower() or termo in p["explicacao"].lower()]
@@ -551,7 +591,10 @@ elif st.session_state.pagina == "biblioteca":
     for q in filtradas:
         vista = "✅" if q["id"] in st.session_state.perguntas_vistas else "⬜"
         resposta = q["resposta_correta"].upper()
-        with st.expander(f"{vista} #{q['id']} — {q['pergunta'][:80]}{'...' if len(q['pergunta']) > 80 else ''}"):
+        with st.expander(
+            f"{vista} #{q['id']} [{rotulo_tema(q)}] — "
+            f"{q['pergunta'][:70]}{'...' if len(q['pergunta']) > 70 else ''}"
+        ):
             st.markdown(f"**{q['pergunta']}**")
             for letra in "ABCD":
                 prefixo = "✅ " if letra == resposta else "   "
