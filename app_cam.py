@@ -220,7 +220,7 @@ aplicar_estilo_mobile()
 EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
 SIMULACAO_TOTAL = 60
 BIB_PAGE_SIZE = 50
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 
 
 def campo(valor) -> str:
@@ -232,6 +232,10 @@ def campo(valor) -> str:
 
 def opcoes_preenchidas(q) -> int:
     return sum(1 for letra in "ABCD" if campo(q.get(f"opcao{letra}")))
+
+
+def letras_com_opcao(q) -> list[str]:
+    return [letra for letra in "ABCD" if campo(q.get(f"opcao{letra}"))]
 
 
 def normalizar_questao(q: dict) -> dict:
@@ -411,7 +415,7 @@ def registar_resposta_simulacao(q, escolha, indice):
 def mostrar_pergunta(q, key_suffix="", escolha_previa=None):
     st.markdown(f'<p class="questao-texto">{q["pergunta"]}</p>', unsafe_allow_html=True)
     st.markdown('<div class="bloco-opcoes"></div>', unsafe_allow_html=True)
-    opcoes = ["A", "B", "C", "D"]
+    opcoes = letras_com_opcao(q) or ["A", "B", "C", "D"]
     index = None
     if escolha_previa:
         prev = str(escolha_previa).upper()
@@ -448,7 +452,7 @@ def mostrar_revisao_resposta(item, numero):
 
     with st.expander(f"{icone} Questão {numero} — {q['pergunta'][:70]}{'...' if len(q['pergunta']) > 70 else ''}"):
         st.markdown(f"**{q['pergunta']}**")
-        for letra in "ABCD":
+        for letra in letras_com_opcao(q):
             if letra == correta:
                 prefixo = "✅ "
             elif letra == escolha and not acertou:
