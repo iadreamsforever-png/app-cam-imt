@@ -266,33 +266,6 @@ def conhecimento_especifico(row, letra: str, opcao: str, ops: dict[str, str]) ->
 
 
 def contraste_inteligente(pergunta: str, letra: str, opcao: str, ops: dict[str, str], tipo: str) -> str:
-    outros = [(L, t) for L, t in ops.items() if L != letra]
-    if not outros:
-        return ""
-
-    if tipo == "falsa":
-        corretas = [f"{L}) {citar_opcao(t)}" for L, t in outros[:2]]
-        if corretas:
-            return " As alternativas " + " e ".join(corretas) + " são afirmações corretas ou recomendadas."
-        return ""
-
-    melhor = None
-    melhor_motivo = ""
-    for L, err in outros:
-        ne, nc = RE_NUM.findall(err), RE_NUM.findall(opcao)
-        if ne and nc and ne != nc:
-            melhor = L
-            melhor_motivo = f"a opção {L}) indica valores ({citar_opcao(err)}) diferentes do aplicável"
-            break
-        if ("proibid" in norm(err) or "vedad" in norm(err)) and "proibid" not in norm(opcao):
-            melhor = L
-            melhor_motivo = f"{L}) afirma algo proibido ou inadequado neste contexto"
-        elif sim_texto(err, opcao) < 0.3 and len(err) > 20:
-            melhor = L
-            melhor_motivo = f"{L}) («{citar_opcao(err)}») não corresponde ao pedido do enunciado"
-
-    if melhor_motivo:
-        return f" Por exemplo, {melhor_motivo}."
     return ""
 
 

@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import pandas as pd
 import random
@@ -220,7 +221,7 @@ aplicar_estilo_mobile()
 EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
 SIMULACAO_TOTAL = 60
 BIB_PAGE_SIZE = 50
-CACHE_VERSION = 7
+CACHE_VERSION = 8
 
 
 def campo(valor) -> str:
@@ -238,9 +239,23 @@ def letras_com_opcao(q) -> list[str]:
     return [letra for letra in "ABCD" if campo(q.get(f"opcao{letra}"))]
 
 
+_RE_EXEMPLO = re.compile(r"\s*Por exemplo,.*$", re.I | re.S)
+_RE_ALT_CORRETAS = re.compile(
+    r"\s*As alternativas .* são afirmações corretas ou recomendadas\.?",
+    re.I | re.S,
+)
+
+
+def _limpar_explicacao(exp: str) -> str:
+    t = campo(exp)
+    for pat in (_RE_EXEMPLO, _RE_ALT_CORRETAS):
+        t = pat.sub("", t).strip()
+    return t
+
+
 def explicacao_util(q) -> str:
     """Usa a explicação do Excel; fallback simples se estiver vazia."""
-    exp = campo(q.get("explicacao"))
+    exp = _limpar_explicacao(campo(q.get("explicacao")))
     if exp and "esta alternativa responde corretamente" not in exp.lower():
         return exp
 
