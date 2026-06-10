@@ -7,6 +7,41 @@ BASE_DIR = Path(__file__).parent
 
 st.set_page_config(page_title="Simulados CAM - IMT", page_icon="🚛", layout="centered")
 
+# ====================== ACESSO POR PALAVRA-PASSE ======================
+def obter_senha():
+    try:
+        return st.secrets["auth"]["password"]
+    except (KeyError, AttributeError, FileNotFoundError):
+        return None
+
+def verificar_acesso():
+    if st.session_state.get("autenticado"):
+        return True
+
+    senha_correta = obter_senha()
+    if not senha_correta:
+        st.error("Palavra-passe não configurada.")
+        st.info("Local: cria `.streamlit/secrets.toml` com `[auth]` e `password`. Online: Settings → Secrets no Streamlit Cloud.")
+        st.stop()
+
+    st.title("🚛 Simulados CAM - IMT")
+    st.subheader("Acesso restrito")
+    st.caption("Introduz a palavra-passe para entrar.")
+
+    with st.form("login"):
+        senha = st.text_input("Palavra-passe", type="password")
+        entrar = st.form_submit_button("Entrar", type="primary", use_container_width=True)
+
+    if entrar:
+        if senha == senha_correta:
+            st.session_state.autenticado = True
+            st.rerun()
+        else:
+            st.error("Palavra-passe incorreta.")
+    st.stop()
+
+verificar_acesso()
+
 # ====================== CARREGAR PERGUNTAS DO EXCEL ======================
 @st.cache_data
 def carregar_perguntas():
@@ -129,6 +164,10 @@ if st.session_state.pagina == "inicio":
         st.session_state.acertos = 0
         st.session_state.erros = 0
         st.session_state.perguntas_vistas = set()
+        st.rerun()
+
+    if st.button("🔒 Terminar sessão", use_container_width=True):
+        st.session_state.autenticado = False
         st.rerun()
 
 # ====================== SIMULAÇÃO COMPLETA ======================
