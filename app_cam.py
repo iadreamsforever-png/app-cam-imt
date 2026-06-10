@@ -217,12 +217,18 @@ def meta_linha(texto):
 aplicar_estilo_mobile()
 
 # ====================== CARREGAR PERGUNTAS DO EXCEL ======================
+EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
+
 @st.cache_data
-def carregar_perguntas():
-    df = pd.read_excel(BASE_DIR / "questoes sem rep.xlsx")
+def carregar_perguntas(excel_mtime):
+    df = pd.read_excel(EXCEL_QUESTOES)
+    df["resposta_correta"] = df["resposta_correta"].astype(str).str.strip().str.lower()
     return df.to_dict("records")
 
-perguntas = carregar_perguntas()
+def obter_perguntas():
+    return carregar_perguntas(EXCEL_QUESTOES.stat().st_mtime)
+
+perguntas = obter_perguntas()
 
 # ====================== ESTADO ======================
 if "pagina" not in st.session_state:
@@ -644,8 +650,16 @@ elif st.session_state.pagina == "pratica_livre":
 
 # ====================== BIBLIOTECA ======================
 elif st.session_state.pagina == "biblioteca":
+    perguntas = obter_perguntas()
+
     st.header("📚 Biblioteca de Questões")
-    st.caption(f"{len(perguntas)} questões no total")
+    col_cap, col_atualizar = st.columns([4, 1])
+    with col_cap:
+        st.caption(f"{len(perguntas)} questões no total")
+    with col_atualizar:
+        if st.button("↻", help="Atualizar questões"):
+            carregar_perguntas.clear()
+            st.rerun()
 
     busca = st.text_input("🔍 Pesquisar", placeholder="Palavras-chave da pergunta...")
     filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
@@ -663,7 +677,7 @@ elif st.session_state.pagina == "biblioteca":
 
     for q in filtradas:
         vista = "✅" if q["id"] in st.session_state.perguntas_vistas else "⬜"
-        resposta = q["resposta_correta"].upper()
+        resposta = str(q["resposta_correta"]).strip().upper()
         with st.expander(f"{vista} #{q['id']} — {q['pergunta'][:80]}{'...' if len(q['pergunta']) > 80 else ''}"):
             st.markdown(f"**{q['pergunta']}**")
             for letra in "ABCD":
