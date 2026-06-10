@@ -1,3 +1,4 @@
+import re
 import streamlit as st
 import pandas as pd
 import random
@@ -220,7 +221,7 @@ aplicar_estilo_mobile()
 EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
 SIMULACAO_TOTAL = 60
 BIB_PAGE_SIZE = 50
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 
 
 def campo(valor) -> str:
@@ -236,6 +237,36 @@ def opcoes_preenchidas(q) -> int:
 
 def letras_com_opcao(q) -> list[str]:
     return [letra for letra in "ABCD" if campo(q.get(f"opcao{letra}"))]
+
+
+PREFIXO_EXPLICACAO_IMT = re.compile(r"^Resposta aceite no exame IMT[.:]?\s*", re.I)
+
+
+def explicacao_util(q) -> str:
+    """Explicação com conteúdo real — nunca só o prefixo IMT."""
+    exp = campo(q.get("explicacao"))
+    if exp:
+        if PREFIXO_EXPLICACAO_IMT.match(exp):
+            resto = PREFIXO_EXPLICACAO_IMT.sub("", exp).strip()
+            if len(resto) >= 25:
+                return resto
+        elif not exp.lower().startswith("resposta aceite no exame imt"):
+            return exp
+
+    letra = campo(q.get("resposta_correta")).upper()
+    opcao = campo(q.get(f"opcao{letra}"))
+    if opcao:
+        pergunta = campo(q.get("pergunta"))
+        if pergunta.endswith(":"):
+            pergunta = pergunta[:-1]
+        if len(pergunta) > 120:
+            pergunta = pergunta[:117] + "..."
+        return (
+            f"A resposta correta é a opção **{letra})** {opcao}. "
+            f"No exame CAM do IMT, esta alternativa responde corretamente à questão "
+            f"«{pergunta}»."
+        )
+    return exp or "Sem explicação disponível para esta questão."
 
 
 def normalizar_questao(q: dict) -> dict:
@@ -282,9 +313,10 @@ def deduplicar_perguntas(records):
     return unicas
 
 
-def criar_conjunto_simulacao(pool, total=SIMULACAO_TOTAL):
-    """Sorteia questões únicas com gabarito para a simulação (sem repetições)."""
-    pool = [q for q in pool if resposta_valida(q)]
+def criar_conjunto_simulacao(pool, excluir_ids=None, total=SIMULACAO_TOTAL):
+    """Sorteia questões únicas; exclui as já usadas em simulações anteriores."""
+    excluir = excluir_ids or set()
+    pool = [q for q in pool if resposta_valida(q) and q.get("id") not in excluir]
     unicas = deduplicar_perguntas(pool)
     n = min(total, len(unicas))
     if n <= 0:
@@ -338,6 +370,8 @@ if "erros" not in st.session_state:
     st.session_state.erros = 0
 if "perguntas_vistas" not in st.session_state:
     st.session_state.perguntas_vistas = set()
+if "simulacao_usadas" not in st.session_state:
+    st.session_state.simulacao_usadas = set()
 
 def ir_para(pagina):
     st.session_state.pagina = pagina
@@ -349,10 +383,13 @@ def limpar_simulacao():
 
 
 def iniciar_simulacao():
-    """Nova simulação com conjunto fixo de questões únicas."""
+    """Nova simulação com questões ainda não usadas em simulações anteriores."""
     limpar_simulacao()
     pool = obter_perguntas_funcionais()
-    st.session_state.simulacao_perguntas = criar_conjunto_simulacao(pool)
+    usadas = st.session_state.simulacao_usadas
+    st.session_state.simulacao_perguntas = criar_conjunto_simulacao(pool, excluir_ids=usadas)
+    for q in st.session_state.simulacao_perguntas:
+        usadas.add(q["id"])
     st.session_state.indice = 0
     st.session_state.acertos_sim = 0
     st.session_state.simulacao_respostas = []
@@ -441,7 +478,7 @@ def mostrar_feedback(q, acertou):
         letra = q["resposta_correta"].upper()
         texto = q[f"opcao{letra}"]
         st.error(f"❌ Errado! A resposta correta é: **{letra}) {texto}**")
-    st.info(q["explicacao"])
+    st.info(explicacao_util(q))
 
 def mostrar_revisao_resposta(item, numero):
     q = item["pergunta"]
@@ -465,7 +502,7 @@ def mostrar_revisao_resposta(item, numero):
         else:
             st.error(f"A tua resposta: **{escolha})** {q[f'opcao{escolha}']}")
             st.success(f"Resposta correta: **{correta})** {q[f'opcao{correta}']}")
-        st.info(f"**Explicação:** {q['explicacao']}")
+        st.info(f"**Explicação:** {explicacao_util(q)}")
 
 # ====================== TELA INICIAL ======================
 if st.session_state.pagina == "inicio":
@@ -476,7 +513,13 @@ if st.session_state.pagina == "inicio":
         unsafe_allow_html=True,
     )
     funcionais = obter_perguntas_funcionais()
-    st.caption(f"Base: {len(funcionais)} questões funcionais com gabarito IMT")
+    usadas_sim = st.session_state.simulacao_usadas
+    restantes_sim = len([q for q in funcionais if q["id"] not in usadas_sim])
+    n_sim = min(SIMULACAO_TOTAL, restantes_sim)
+    st.caption(
+        f"Base: {len(funcionais)} questões funcionais · "
+        f"{restantes_sim} ainda não usadas em simulações"
+    )
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -494,7 +537,6 @@ if st.session_state.pagina == "inicio":
 
     st.markdown("---")
 
-    n_sim = min(SIMULACAO_TOTAL, len(funcionais))
     if st.button(
         f"🚀 Simulação Completa ({n_sim} questões)",
         use_container_width=True,
@@ -516,6 +558,7 @@ if st.session_state.pagina == "inicio":
         st.session_state.acertos = 0
         st.session_state.erros = 0
         st.session_state.perguntas_vistas = set()
+        st.session_state.simulacao_usadas = set()
         st.rerun()
 
     if st.button("🔒 Terminar sessão", use_container_width=True):
@@ -530,7 +573,10 @@ elif st.session_state.pagina == "simulacao":
     total_sim = len(st.session_state.simulacao_perguntas)
 
     if total_sim == 0:
-        st.error("Não há questões disponíveis para a simulação.")
+        st.error(
+            "Já utilizaste todas as questões em simulações. "
+            "Reinicia as estatísticas no início para voltar a sortear o banco completo."
+        )
         if st.button("← Voltar ao Início", use_container_width=True):
             limpar_simulacao()
             ir_para("inicio")
@@ -852,9 +898,10 @@ elif st.session_state.pagina == "biblioteca":
                     continue
                 prefixo = "✅ " if jogavel and letra == resposta else "   "
                 st.write(f"{prefixo}**{letra})** {opcao}")
-            exp = campo(q.get("explicacao"))
-            if jogavel and exp:
-                st.info(f"**Explicação:** {exp}")
+            if jogavel:
+                exp = explicacao_util(q)
+                if exp:
+                    st.info(f"**Explicação:** {exp}")
             elif not jogavel:
                 st.warning("Gabarito IMT pendente — disponível para consulta, não entra em simulados.")
 
