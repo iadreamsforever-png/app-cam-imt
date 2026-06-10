@@ -218,17 +218,112 @@ aplicar_estilo_mobile()
 
 # ====================== CARREGAR PERGUNTAS DO EXCEL ======================
 EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
+SIMULACAO_TOTAL = 60
+BIB_PAGE_SIZE = 50
+CACHE_VERSION = 3
+
+
+def campo(valor) -> str:
+    if valor is None or (isinstance(valor, float) and pd.isna(valor)):
+        return ""
+    texto = str(valor).strip()
+    return "" if texto.lower() == "nan" else texto
+
+
+def opcoes_preenchidas(q) -> int:
+    return sum(1 for letra in "ABCD" if campo(q.get(f"opcao{letra}")))
+
+
+def normalizar_questao(q: dict) -> dict:
+    out = dict(q)
+    for chave in ("pergunta", "explicacao", "resposta_correta", "fonte_imt", "status_revisao"):
+        if chave in out:
+            out[chave] = campo(out[chave])
+    for letra in "ABCD":
+        out[f"opcao{letra}"] = campo(out.get(f"opcao{letra}"))
+    if out.get("resposta_correta"):
+        out["resposta_correta"] = out["resposta_correta"].lower()
+    return out
+
+
+def pergunta_funcional(q) -> bool:
+    """Pergunta utilizável em simulado, prática e biblioteca."""
+    if not resposta_valida(q):
+        return False
+    if len(campo(q.get("pergunta")).split()) < 3:
+        return False
+    letra = campo(q.get("resposta_correta")).upper()
+    if not campo(q.get(f"opcao{letra}")):
+        return False
+    return opcoes_preenchidas(q) >= 2
+
+
+def deduplicar_perguntas(records):
+    """Garante uma única entrada por id e por texto de pergunta."""
+    por_id = {}
+    for r in records:
+        qid = r.get("id")
+        if qid is None:
+            continue
+        por_id[qid] = r
+
+    unicas = []
+    textos_vistos = set()
+    for r in por_id.values():
+        texto = str(r.get("pergunta", "")).strip().lower()
+        if not texto or texto in textos_vistos:
+            continue
+        textos_vistos.add(texto)
+        unicas.append(r)
+    return unicas
+
+
+def criar_conjunto_simulacao(pool, total=SIMULACAO_TOTAL):
+    """Sorteia questões únicas com gabarito para a simulação (sem repetições)."""
+    pool = [q for q in pool if resposta_valida(q)]
+    unicas = deduplicar_perguntas(pool)
+    n = min(total, len(unicas))
+    if n <= 0:
+        return []
+    return random.sample(unicas, n)
+
+
+def _excel_fingerprint():
+    stt = EXCEL_QUESTOES.stat()
+    return (stt.st_mtime_ns, stt.st_size)
+
 
 @st.cache_data
-def carregar_perguntas(excel_mtime):
+def carregar_perguntas(excel_mtime_ns, excel_size, cache_version):
     df = pd.read_excel(EXCEL_QUESTOES)
-    df["resposta_correta"] = df["resposta_correta"].astype(str).str.strip().str.lower()
-    return df.to_dict("records")
+    records = [normalizar_questao(r) for r in df.to_dict("records")]
+    return deduplicar_perguntas(records)
+
 
 def obter_perguntas():
-    return carregar_perguntas(EXCEL_QUESTOES.stat().st_mtime)
+    if not EXCEL_QUESTOES.exists():
+        return []
+    mtime_ns, size = _excel_fingerprint()
+    fp = (mtime_ns, size)
+    if st.session_state.get("_excel_fp") != fp:
+        carregar_perguntas.clear()
+        st.session_state._excel_fp = fp
+    return carregar_perguntas(mtime_ns, size, CACHE_VERSION)
 
-perguntas = obter_perguntas()
+
+def resposta_valida(q):
+    return str(q.get("resposta_correta", "")).strip().lower() in list("abcd")
+
+
+def obter_perguntas_jogaveis(pool=None):
+    base = pool if pool is not None else obter_perguntas()
+    return [q for q in base if resposta_valida(q)]
+
+
+def obter_perguntas_funcionais(pool=None):
+    base = pool if pool is not None else obter_perguntas()
+    return [q for q in base if pergunta_funcional(q)]
+
 
 # ====================== ESTADO ======================
 if "pagina" not in st.session_state:
@@ -247,6 +342,16 @@ def ir_para(pagina):
 def limpar_simulacao():
     for key in ("simulacao_perguntas", "indice", "acertos_sim", "simulacao_respostas"):
         st.session_state.pop(key, None)
+
+
+def iniciar_simulacao():
+    """Nova simulação com conjunto fixo de questões únicas."""
+    limpar_simulacao()
+    pool = obter_perguntas_funcionais()
+    st.session_state.simulacao_perguntas = criar_conjunto_simulacao(pool)
+    st.session_state.indice = 0
+    st.session_state.acertos_sim = 0
+    st.session_state.simulacao_respostas = []
 
 def limpar_pratica():
     for key in (
@@ -361,7 +466,13 @@ def mostrar_revisao_resposta(item, numero):
 # ====================== TELA INICIAL ======================
 if st.session_state.pagina == "inicio":
     st.title("🚛 Simulados CAM - IMT")
-    st.markdown('<p class="page-subtitle">Preparação para o exame CAM do IMT — mercadorias e passageiros</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="page-subtitle">Preparação para o exame CAM do IMT — mercadorias e passageiros. '
+        'Respostas alinhadas com o que o IMT aceita no exame.</p>',
+        unsafe_allow_html=True,
+    )
+    funcionais = obter_perguntas_funcionais()
+    st.caption(f"Base: {len(funcionais)} questões funcionais com gabarito IMT")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -379,8 +490,14 @@ if st.session_state.pagina == "inicio":
 
     st.markdown("---")
 
-    if st.button("🚀 Simulação Completa (60 questões)", use_container_width=True, type="primary"):
-        limpar_simulacao()
+    n_sim = min(SIMULACAO_TOTAL, len(funcionais))
+    if st.button(
+        f"🚀 Simulação Completa ({n_sim} questões)",
+        use_container_width=True,
+        type="primary",
+        disabled=n_sim == 0,
+    ):
+        iniciar_simulacao()
         ir_para("simulacao")
 
     if st.button("📝 Prática Livre", use_container_width=True):
@@ -404,13 +521,16 @@ if st.session_state.pagina == "inicio":
 # ====================== SIMULAÇÃO COMPLETA ======================
 elif st.session_state.pagina == "simulacao":
     if "simulacao_perguntas" not in st.session_state:
-        total = min(60, len(perguntas))
-        st.session_state.simulacao_perguntas = random.sample(perguntas, total)
-        st.session_state.indice = 0
-        st.session_state.acertos_sim = 0
-        st.session_state.simulacao_respostas = []
+        iniciar_simulacao()
 
     total_sim = len(st.session_state.simulacao_perguntas)
+
+    if total_sim == 0:
+        st.error("Não há questões disponíveis para a simulação.")
+        if st.button("← Voltar ao Início", use_container_width=True):
+            limpar_simulacao()
+            ir_para("inicio")
+        st.stop()
 
     if st.session_state.indice < total_sim:
         idx = st.session_state.indice
@@ -457,7 +577,7 @@ elif st.session_state.pagina == "simulacao":
             ir_para("revisao_sim")
 
         if st.button("🔄 Nova Simulação", use_container_width=True):
-            limpar_simulacao()
+            iniciar_simulacao()
             st.rerun()
 
         if st.button("Voltar ao Início", use_container_width=True):
@@ -535,7 +655,8 @@ elif st.session_state.pagina == "pratica_livre":
                 ["Todas", "Ainda não vistas", "Já vistas"],
             )
 
-    pool = perguntas
+    pool = obter_perguntas_funcionais()
+    banco = obter_perguntas()
     if filtro == "Ainda não vistas":
         pool = [p for p in pool if p["id"] not in st.session_state.perguntas_vistas]
     elif filtro == "Já vistas":
@@ -597,14 +718,14 @@ elif st.session_state.pagina == "pratica_livre":
                     st.session_state.pop("pratica_atual", None)
 
             if st.session_state.get("pratica_atual") is not None:
-                q = next(p for p in perguntas if p["id"] == st.session_state.pratica_atual)
+                q = next(p for p in banco if p["id"] == st.session_state.pratica_atual)
 
-                total_biblioteca = len(perguntas)
-                faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
+                total_jog = len(pool)
+                faltam_responder = total_jog - len(st.session_state.perguntas_vistas)
 
                 meta_linha(
                     f"Questão #{q['id']} · {len(pool)} no filtro · "
-                    f"faltam {faltam_responder}/{total_biblioteca}"
+                    f"faltam {faltam_responder}/{total_jog} (com gabarito)"
                 )
 
                 escolha = mostrar_pergunta(q, key_suffix=f"prat_{q['id']}")
@@ -650,40 +771,88 @@ elif st.session_state.pagina == "pratica_livre":
 
 # ====================== BIBLIOTECA ======================
 elif st.session_state.pagina == "biblioteca":
-    perguntas = obter_perguntas()
+    funcionais = obter_perguntas_funcionais()
 
     st.header("📚 Biblioteca de Questões")
     col_cap, col_atualizar = st.columns([4, 1])
     with col_cap:
-        st.caption(f"{len(perguntas)} questões no total")
+        total_pag = max(1, (len(funcionais) + BIB_PAGE_SIZE - 1) // BIB_PAGE_SIZE)
+        st.caption(
+            f"{len(funcionais)} questões · {BIB_PAGE_SIZE} por página · {total_pag} páginas"
+        )
     with col_atualizar:
         if st.button("↻", help="Atualizar questões"):
             carregar_perguntas.clear()
+            st.session_state.pop("_excel_fp", None)
+            st.session_state.bib_pagina = 1
             st.rerun()
 
     busca = st.text_input("🔍 Pesquisar", placeholder="Palavras-chave da pergunta...")
     filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
 
-    filtradas = perguntas
+    filtradas = list(funcionais)
     if busca:
         termo = busca.lower()
-        filtradas = [p for p in filtradas if termo in p["pergunta"].lower() or termo in p["explicacao"].lower()]
+        filtradas = [
+            p for p in filtradas
+            if termo in campo(p.get("pergunta")).lower()
+            or termo in campo(p.get("explicacao")).lower()
+        ]
     if filtro_bib == "Vistas":
         filtradas = [p for p in filtradas if p["id"] in st.session_state.perguntas_vistas]
     elif filtro_bib == "Não vistas":
         filtradas = [p for p in filtradas if p["id"] not in st.session_state.perguntas_vistas]
 
-    st.write(f"**{len(filtradas)}** questões encontradas")
+    total_filtradas = len(filtradas)
+    total_paginas = max(1, (total_filtradas + BIB_PAGE_SIZE - 1) // BIB_PAGE_SIZE)
+    if "bib_pagina" not in st.session_state:
+        st.session_state.bib_pagina = 1
+    st.session_state.bib_pagina = max(1, min(st.session_state.bib_pagina, total_paginas))
 
-    for q in filtradas:
+    st.write(f"**{total_filtradas}** questões · página **{st.session_state.bib_pagina}** de **{total_paginas}**")
+
+    col_ant, col_num, col_seg = st.columns([1, 2, 1])
+    with col_ant:
+        if st.button("← Anterior", disabled=st.session_state.bib_pagina <= 1, use_container_width=True):
+            st.session_state.bib_pagina -= 1
+            st.rerun()
+    with col_num:
+        st.session_state.bib_pagina = st.number_input(
+            "Página",
+            min_value=1,
+            max_value=total_paginas,
+            value=st.session_state.bib_pagina,
+            step=1,
+            label_visibility="collapsed",
+        )
+    with col_seg:
+        if st.button("Seguinte →", disabled=st.session_state.bib_pagina >= total_paginas, use_container_width=True):
+            st.session_state.bib_pagina += 1
+            st.rerun()
+
+    inicio = (st.session_state.bib_pagina - 1) * BIB_PAGE_SIZE
+    pagina_itens = filtradas[inicio : inicio + BIB_PAGE_SIZE]
+
+    for q in pagina_itens:
         vista = "✅" if q["id"] in st.session_state.perguntas_vistas else "⬜"
-        resposta = str(q["resposta_correta"]).strip().upper()
-        with st.expander(f"{vista} #{q['id']} — {q['pergunta'][:80]}{'...' if len(q['pergunta']) > 80 else ''}"):
-            st.markdown(f"**{q['pergunta']}**")
+        jogavel = resposta_valida(q)
+        gabarito = "📝" if jogavel else "⏳"
+        resposta = campo(q.get("resposta_correta")).upper()
+        pergunta = campo(q.get("pergunta"))
+        titulo = f"{vista}{gabarito} #{q['id']} — {pergunta[:80]}{'...' if len(pergunta) > 80 else ''}"
+        with st.expander(titulo):
+            st.markdown(f"**{pergunta}**")
             for letra in "ABCD":
-                prefixo = "✅ " if letra == resposta else "   "
-                st.write(f"{prefixo}**{letra})** {q[f'opcao{letra}']}")
-            st.info(f"**Explicação:** {q['explicacao']}")
+                opcao = campo(q.get(f"opcao{letra}"))
+                if not opcao:
+                    continue
+                prefixo = "✅ " if jogavel and letra == resposta else "   "
+                st.write(f"{prefixo}**{letra})** {opcao}")
+            exp = campo(q.get("explicacao"))
+            if jogavel and exp:
+                st.info(f"**Explicação:** {exp}")
+            elif not jogavel:
+                st.warning("Gabarito IMT pendente — disponível para consulta, não entra em simulados.")
 
     if st.button("← Voltar ao Início", use_container_width=True):
         ir_para("inicio")
