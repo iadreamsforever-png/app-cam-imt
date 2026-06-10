@@ -42,6 +42,108 @@ def verificar_acesso():
 
 verificar_acesso()
 
+def aplicar_estilo_mobile():
+    st.markdown("""
+    <style>
+        #MainMenu, footer, header {visibility: hidden;}
+        .block-container {
+            padding-top: 1.25rem;
+            padding-bottom: 2.5rem;
+            max-width: 720px;
+        }
+        h1 { font-size: 1.65rem !important; font-weight: 700 !important; }
+        h2 { font-size: 1.35rem !important; font-weight: 600 !important; }
+        h3 { font-size: 1.1rem !important; line-height: 1.5 !important; }
+        p, label, .stMarkdown { font-size: 1rem; line-height: 1.55; }
+        div[data-testid="stMetric"] {
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 0.65rem 0.75rem;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        div[data-testid="stMetric"] label {
+            font-size: 0.78rem !important;
+            color: #64748B !important;
+        }
+        div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+            font-size: 1.35rem !important;
+            font-weight: 700 !important;
+        }
+        .stButton > button {
+            min-height: 48px;
+            border-radius: 12px !important;
+            font-weight: 600 !important;
+            padding: 0.6rem 1rem !important;
+        }
+        .stRadio > div {
+            gap: 0.5rem;
+        }
+        .stRadio label {
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 0.85rem 1rem !important;
+            margin: 0.2rem 0;
+            width: 100%;
+            line-height: 1.45;
+        }
+        .stRadio label:hover { border-color: #2563EB; }
+        div[data-testid="stProgress"] > div > div {
+            height: 10px;
+            border-radius: 999px;
+        }
+        details[data-testid="stExpander"] {
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            background: #FFFFFF;
+            margin-bottom: 0.5rem;
+        }
+        details[data-testid="stExpander"] summary {
+            padding: 0.85rem 1rem;
+            font-size: 0.95rem;
+        }
+        .info-chip {
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 12px;
+            padding: 0.75rem 1rem;
+            margin: 0.35rem 0 0.85rem 0;
+            font-size: 0.92rem;
+            color: #334155;
+            line-height: 1.5;
+        }
+        .info-chip strong { color: #0F172A; }
+        .page-subtitle {
+            color: #64748B;
+            font-size: 0.95rem;
+            margin-top: -0.5rem;
+            margin-bottom: 1rem;
+        }
+        @media (max-width: 640px) {
+            .block-container {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            div[data-testid="column"] {
+                width: 100% !important;
+                flex: 1 1 100% !important;
+                min-width: 100% !important;
+            }
+            h1 { font-size: 1.45rem !important; }
+            h3 { font-size: 1.05rem !important; }
+            .stRadio > div[role="radiogroup"] {
+                flex-direction: column !important;
+            }
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+def info_chip(texto):
+    st.markdown(f'<div class="info-chip">{texto}</div>', unsafe_allow_html=True)
+
+aplicar_estilo_mobile()
+
 # ====================== CARREGAR PERGUNTAS DO EXCEL ======================
 @st.cache_data
 def carregar_perguntas():
@@ -90,6 +192,7 @@ def mostrar_pergunta(q, key_prefix=""):
         opcoes,
         format_func=lambda x: f"{x}) {q['opcao' + x]}",
         key=f"{key_prefix}escolha_{q['id']}",
+        label_visibility="collapsed",
     )
 
 def mostrar_feedback(q, acertou):
@@ -128,9 +231,7 @@ def mostrar_revisao_resposta(item, numero):
 # ====================== TELA INICIAL ======================
 if st.session_state.pagina == "inicio":
     st.title("🚛 Simulados CAM - IMT")
-    st.subheader("Preparação para o exame oficial do IMT")
-
-    st.markdown("---")
+    st.markdown('<p class="page-subtitle">Preparação para o exame oficial do IMT</p>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -187,11 +288,11 @@ elif st.session_state.pagina == "simulacao":
         q = st.session_state.simulacao_perguntas[st.session_state.indice]
 
         st.progress((st.session_state.indice + 1) / total_sim)
-        st.write(f"**Pergunta {st.session_state.indice + 1} de {total_sim}**")
+        info_chip(f"<strong>Pergunta {st.session_state.indice + 1} de {total_sim}</strong>")
 
         escolha = mostrar_pergunta(q, key_prefix="sim_")
 
-        if st.button("Responder", type="primary"):
+        if st.button("Responder", type="primary", use_container_width=True):
             acertou = processar_resposta(q, escolha)
             if acertou:
                 st.session_state.acertos_sim += 1
@@ -232,7 +333,7 @@ elif st.session_state.pagina == "simulacao":
             ir_para("inicio")
 
     if st.session_state.indice < total_sim:
-        if st.button("← Voltar ao Início"):
+        if st.button("← Voltar ao Início", use_container_width=True):
             limpar_simulacao()
             ir_para("inicio")
 
@@ -243,7 +344,7 @@ elif st.session_state.pagina == "revisao_sim":
     respostas = st.session_state.get("simulacao_respostas", [])
     if not respostas:
         st.warning("Nenhuma simulação concluída para rever.")
-        if st.button("← Voltar ao Início"):
+        if st.button("← Voltar ao Início", use_container_width=True):
             ir_para("inicio")
     else:
         acertos = sum(1 for r in respostas if r["acertou"])
@@ -259,7 +360,6 @@ elif st.session_state.pagina == "revisao_sim":
         filtro_rev = st.radio(
             "Mostrar:",
             ["Todas", "Apenas erradas", "Apenas corretas"],
-            horizontal=True,
         )
 
         lista = respostas
@@ -277,10 +377,10 @@ elif st.session_state.pagina == "revisao_sim":
             mostrar_revisao_resposta(item, numero)
 
         st.markdown("---")
-        if st.button("← Voltar ao Resultado"):
+        if st.button("← Voltar ao Resultado", use_container_width=True):
             ir_para("simulacao")
 
-        if st.button("Voltar ao Início"):
+        if st.button("Voltar ao Início", use_container_width=True):
             limpar_simulacao()
             ir_para("inicio")
 
@@ -292,7 +392,6 @@ elif st.session_state.pagina == "pratica_livre":
     filtro = st.radio(
         "Filtrar perguntas:",
         ["Todas", "Ainda não vistas", "Já vistas"],
-        horizontal=True,
     )
 
     pool = perguntas
@@ -308,7 +407,7 @@ elif st.session_state.pagina == "pratica_livre":
 
     if not pool and not mostrando_feedback:
         st.warning("Nenhuma pergunta disponível com este filtro.")
-        if st.button("← Voltar ao Início"):
+        if st.button("← Voltar ao Início", use_container_width=True):
             limpar_pratica()
             ir_para("inicio")
     else:
@@ -330,20 +429,24 @@ elif st.session_state.pagina == "pratica_livre":
             total_biblioteca = len(perguntas)
             faltam_responder = total_biblioteca - len(st.session_state.perguntas_vistas)
 
-            st.write(f"**Questão #{q['id']}** — {len(pool)} disponíveis no filtro atual")
-            st.write(f"**Faltam responder: {faltam_responder} de {total_biblioteca}**")
+            info_chip(
+                f"<strong>Questão #{q['id']}</strong> — {len(pool)} disponíveis no filtro atual"
+            )
+            info_chip(
+                f"<strong>Faltam responder: {faltam_responder} de {total_biblioteca}</strong>"
+            )
 
             escolha = mostrar_pergunta(q, key_prefix="prat_")
 
             if not st.session_state.get("pratica_respondido"):
-                if st.button("Responder", type="primary"):
+                if st.button("Responder", type="primary", use_container_width=True):
                     st.session_state.pratica_acertou = processar_resposta(q, escolha)
                     st.session_state.pratica_respondido = True
                     st.rerun()
             else:
                 mostrar_feedback(q, st.session_state.pratica_acertou)
 
-                if st.button("Avançar →", type="primary"):
+                if st.button("Avançar →", type="primary", use_container_width=True):
                     st.session_state.pratica_respondido = False
                     st.session_state.pop("pratica_acertou", None)
                     if pool:
@@ -352,7 +455,7 @@ elif st.session_state.pagina == "pratica_livre":
                         st.session_state.pop("pratica_atual", None)
                     st.rerun()
 
-        if st.button("← Voltar ao Início"):
+        if st.button("← Voltar ao Início", use_container_width=True):
             limpar_pratica()
             ir_para("inicio")
 
@@ -361,11 +464,8 @@ elif st.session_state.pagina == "biblioteca":
     st.header("📚 Biblioteca de Questões")
     st.caption(f"{len(perguntas)} questões no total")
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        busca = st.text_input("🔍 Pesquisar", placeholder="Digite palavras-chave da pergunta...")
-    with col2:
-        filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
+    busca = st.text_input("🔍 Pesquisar", placeholder="Palavras-chave da pergunta...")
+    filtro_bib = st.selectbox("Estado", ["Todas", "Vistas", "Não vistas"])
 
     filtradas = perguntas
     if busca:
@@ -388,8 +488,7 @@ elif st.session_state.pagina == "biblioteca":
                 st.write(f"{prefixo}**{letra})** {q[f'opcao{letra}']}")
             st.info(f"**Explicação:** {q['explicacao']}")
 
-    if st.button("← Voltar ao Início"):
+    if st.button("← Voltar ao Início", use_container_width=True):
         ir_para("inicio")
 
-st.markdown("---")
 st.caption("Simulados CAM IMT • Preparação para o exame oficial")
