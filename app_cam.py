@@ -221,7 +221,7 @@ aplicar_estilo_mobile()
 EXCEL_QUESTOES = BASE_DIR / "questoes sem rep.xlsx"
 SIMULACAO_TOTAL = 60
 BIB_PAGE_SIZE = 50
-CACHE_VERSION = 5
+CACHE_VERSION = 6
 
 
 def campo(valor) -> str:
@@ -239,34 +239,19 @@ def letras_com_opcao(q) -> list[str]:
     return [letra for letra in "ABCD" if campo(q.get(f"opcao{letra}"))]
 
 
-PREFIXO_EXPLICACAO_IMT = re.compile(r"^Resposta aceite no exame IMT[.:]?\s*", re.I)
+@st.cache_data
+def _fontes_explicacao():
+    from _explicacoes_ricas import carregar_fontes
+
+    return carregar_fontes()
 
 
 def explicacao_util(q) -> str:
-    """Explicação com conteúdo real — nunca só o prefixo IMT."""
-    exp = campo(q.get("explicacao"))
-    if exp:
-        if PREFIXO_EXPLICACAO_IMT.match(exp):
-            resto = PREFIXO_EXPLICACAO_IMT.sub("", exp).strip()
-            if len(resto) >= 25:
-                return resto
-        elif not exp.lower().startswith("resposta aceite no exame imt"):
-            return exp
+    """Explicação pedagógica — nunca genérica."""
+    from _explicacoes_ricas import gerar_explicacao
 
-    letra = campo(q.get("resposta_correta")).upper()
-    opcao = campo(q.get(f"opcao{letra}"))
-    if opcao:
-        pergunta = campo(q.get("pergunta"))
-        if pergunta.endswith(":"):
-            pergunta = pergunta[:-1]
-        if len(pergunta) > 120:
-            pergunta = pergunta[:117] + "..."
-        return (
-            f"A resposta correta é a opção **{letra})** {opcao}. "
-            f"No exame CAM do IMT, esta alternativa responde corretamente à questão "
-            f"«{pergunta}»."
-        )
-    return exp or "Sem explicação disponível para esta questão."
+    texto, _ = gerar_explicacao(q, _fontes_explicacao())
+    return texto or "Sem explicação disponível para esta questão."
 
 
 def normalizar_questao(q: dict) -> dict:
