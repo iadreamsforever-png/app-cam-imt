@@ -1,10 +1,16 @@
+import json
 import re
+import time
 import streamlit as st
 import pandas as pd
 import random
 from pathlib import Path
 
+from components.progress_store import progress_store
+
 BASE_DIR = Path(__file__).parent
+PROGRESSO_FICHEIRO = BASE_DIR / ".streamlit" / "progresso_cam.json"
+PROGRESSO_STORAGE_KEY = "cam_imt_progresso_v1"
 
 st.set_page_config(page_title="Simulados CAM - IMT", page_icon="🚛", layout="centered")
 
@@ -41,7 +47,101 @@ def verificar_acesso():
             st.error("Palavra-passe incorreta.")
     st.stop()
 
+
+def exportar_progresso() -> dict:
+    vistas = st.session_state.get("perguntas_vistas", set())
+    usadas = st.session_state.get("simulacao_usadas", set())
+    return {
+        "v": 1,
+        "atualizado": time.time(),
+        "acertos": int(st.session_state.get("acertos", 0)),
+        "erros": int(st.session_state.get("erros", 0)),
+        "perguntas_vistas": sorted(int(x) for x in vistas),
+        "simulacao_usadas": sorted(int(x) for x in usadas),
+    }
+
+
+def aplicar_progresso(dados: dict):
+    st.session_state.acertos = int(dados.get("acertos", 0))
+    st.session_state.erros = int(dados.get("erros", 0))
+    st.session_state.perguntas_vistas = set(int(x) for x in dados.get("perguntas_vistas", []))
+    st.session_state.simulacao_usadas = set(int(x) for x in dados.get("simulacao_usadas", []))
+
+
+def ler_progresso_ficheiro():
+    if not PROGRESSO_FICHEIRO.exists():
+        return None
+    try:
+        return json.loads(PROGRESSO_FICHEIRO.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, ValueError):
+        return None
+
+
+def gravar_progresso_ficheiro(dados: dict):
+    PROGRESSO_FICHEIRO.parent.mkdir(parents=True, exist_ok=True)
+    PROGRESSO_FICHEIRO.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def escolher_progresso_mais_recente(*fontes):
+    validas = [f for f in fontes if isinstance(f, dict) and "v" in f]
+    if not validas:
+        return None
+    return max(validas, key=lambda f: float(f.get("atualizado", 0)))
+
+
+def salvar_progresso():
+    if not st.session_state.get("_progresso_carregado"):
+        return
+    dados = exportar_progresso()
+    gravar_progresso_ficheiro(dados)
+    progress_store(
+        action="set",
+        storage_key=PROGRESSO_STORAGE_KEY,
+        value=json.dumps(dados, ensure_ascii=False),
+    )
+
+
+def limpar_progresso_persistido():
+    if PROGRESSO_FICHEIRO.exists():
+        PROGRESSO_FICHEIRO.unlink(missing_ok=True)
+    progress_store(action="clear", storage_key=PROGRESSO_STORAGE_KEY)
+
+
+def inicializar_progresso():
+    if st.session_state.get("_progresso_carregado"):
+        return
+
+    ficheiro = ler_progresso_ficheiro()
+    browser_raw = progress_store(action="get", storage_key=PROGRESSO_STORAGE_KEY, default=None)
+    browser = None
+    if browser_raw:
+        try:
+            browser = json.loads(browser_raw)
+        except json.JSONDecodeError:
+            browser = None
+
+    dados = escolher_progresso_mais_recente(ficheiro, browser)
+    if dados:
+        aplicar_progresso(dados)
+    else:
+        tentativas = st.session_state.get("_progresso_tentativas", 0)
+        if tentativas < 1:
+            st.session_state._progresso_tentativas = tentativas + 1
+            st.rerun()
+        st.session_state.acertos = 0
+        st.session_state.erros = 0
+        st.session_state.perguntas_vistas = set()
+        st.session_state.simulacao_usadas = set()
+
+    st.session_state._progresso_carregado = True
+    salvar_progresso()
+
+
 verificar_acesso()
+inicializar_progresso()
 
 def aplicar_estilo_mobile():
     st.markdown("""
@@ -390,6 +490,7 @@ def iniciar_simulacao():
     st.session_state.indice = 0
     st.session_state.acertos_sim = 0
     st.session_state.simulacao_respostas = []
+    salvar_progresso()
 
 def limpar_pratica():
     for key in (
@@ -428,6 +529,7 @@ def processar_resposta(q, escolha):
     else:
         st.session_state.erros += 1
     st.session_state.perguntas_vistas.add(q["id"])
+    salvar_progresso()
     return acertou
 
 def atualizar_estatisticas_global(q, acertou, reverso=False):
@@ -466,6 +568,7 @@ def registar_resposta_simulacao(q, escolha, indice):
     if acertou:
         st.session_state.acertos_sim += 1
 
+    salvar_progresso()
     return acertou
 
 def mostrar_pergunta(q, key_suffix="", escolha_previa=None):
@@ -578,6 +681,8 @@ if st.session_state.pagina == "inicio":
         st.session_state.erros = 0
         st.session_state.perguntas_vistas = set()
         st.session_state.simulacao_usadas = set()
+        limpar_progresso_persistido()
+        salvar_progresso()
         st.rerun()
 
     if st.button("🔒 Terminar sessão", use_container_width=True):
@@ -957,4 +1062,5 @@ elif st.session_state.pagina == "biblioteca":
     if st.button("← Voltar ao Início", use_container_width=True):
         ir_para("inicio")
 
+salvar_progresso()
 st.caption("Simulados CAM IMT • Preparação para o exame oficial")

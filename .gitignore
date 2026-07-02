@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
+.streamlit/progresso_cam.json
 terminals/
 *.bat
 _apk/

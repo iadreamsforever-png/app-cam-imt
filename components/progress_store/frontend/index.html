@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+const Streamlit = window.Streamlit;
+
+function onRender(event) {
+  const args = event.detail.args || {};
+  const key = args.storage_key || "cam_imt_v1";
+  if (args.action === "get") {
+    Streamlit.setComponentValue(window.localStorage.getItem(key));
+  } else if (args.action === "set") {
+    if (args.value != null && args.value !== "") {
+      window.localStorage.setItem(key, args.value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+    Streamlit.setComponentValue(true);
+  } else if (args.action === "clear") {
+    window.localStorage.removeItem(key);
+    Streamlit.setComponentValue(true);
+  }
+  Streamlit.setFrameHeight(0);
+}
+
+Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, onRender);
+Streamlit.setComponentReady();
+</script>
+</body>
+</html>
