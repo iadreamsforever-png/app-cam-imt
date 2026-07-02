@@ -394,9 +394,31 @@ def iniciar_simulacao():
 def limpar_pratica():
     for key in (
         "pratica_atual", "pratica_respondido", "pratica_acertou",
-        "pratica_historico", "pratica_rever_indice",
+        "pratica_historico", "pratica_rever_indice", "pratica_sessao_completa",
     ):
         st.session_state.pop(key, None)
+
+
+def ids_pratica_sessao(historico, atual_id=None):
+    """IDs já mostrados na sessão atual de prática livre."""
+    ids = {item["pergunta"]["id"] for item in historico}
+    if atual_id is not None:
+        ids.add(atual_id)
+    return ids
+
+
+def pool_pratica_disponivel(pool, historico, atual_id=None):
+    usadas = ids_pratica_sessao(historico, atual_id)
+    return [p for p in pool if p["id"] not in usadas]
+
+
+def escolher_proxima_pratica(pool, historico, atual_id=None):
+    """Sorteia próxima questão sem repetir as já vistas nesta sessão."""
+    disponiveis = pool_pratica_disponivel(pool, historico, atual_id)
+    if not disponiveis:
+        return None
+    return random.choice(disponiveis)["id"]
+
 
 def processar_resposta(q, escolha):
     correta = q["resposta_correta"].lower()
@@ -718,7 +740,27 @@ elif st.session_state.pagina == "pratica_livre":
         and not em_revisao
     )
 
-    if not pool and not mostrando_feedback and not em_revisao:
+    disponiveis_sessao = pool_pratica_disponivel(pool, historico)
+    sessao_completa = (
+        bool(pool)
+        and not disponiveis_sessao
+        and bool(historico)
+        and not mostrando_feedback
+        and not em_revisao
+    )
+
+    if sessao_completa or st.session_state.get("pratica_sessao_completa"):
+        st.success(
+            f"Completaste as **{len(historico)}** questões deste filtro nesta sessão, "
+            "sem repetições."
+        )
+        if st.button("🔄 Reiniciar prática", use_container_width=True, type="primary"):
+            limpar_pratica()
+            ir_para("pratica_livre")
+        if st.button("← Voltar ao Início", use_container_width=True):
+            limpar_pratica()
+            ir_para("inicio")
+    elif not pool and not mostrando_feedback and not em_revisao:
         st.warning("Nenhuma pergunta disponível com este filtro.")
         if st.button("← Voltar ao Início", use_container_width=True):
             limpar_pratica()
@@ -757,12 +799,16 @@ elif st.session_state.pagina == "pratica_livre":
                 or st.session_state.pratica_atual not in {p["id"] for p in pool}
             )
             if fora_do_filtro and not st.session_state.get("pratica_respondido"):
-                if pool:
-                    st.session_state.pratica_atual = random.choice(pool)["id"]
+                proxima = escolher_proxima_pratica(pool, historico)
+                if proxima is not None:
+                    st.session_state.pratica_atual = proxima
                     st.session_state.pratica_respondido = False
                     st.session_state.pop("pratica_acertou", None)
+                    st.session_state.pop("pratica_sessao_completa", None)
                 else:
                     st.session_state.pop("pratica_atual", None)
+                    st.session_state.pratica_sessao_completa = True
+                    st.rerun()
 
             if st.session_state.get("pratica_atual") is not None:
                 q = next(p for p in banco if p["id"] == st.session_state.pratica_atual)
@@ -770,9 +816,10 @@ elif st.session_state.pagina == "pratica_livre":
                 total_jog = len(pool)
                 faltam_responder = total_jog - len(st.session_state.perguntas_vistas)
 
+                vistas_sessao = len(ids_pratica_sessao(historico, q["id"]))
                 meta_linha(
-                    f"Questão #{q['id']} · {len(pool)} no filtro · "
-                    f"faltam {faltam_responder}/{total_jog} (com gabarito)"
+                    f"Questão #{q['id']} · {vistas_sessao}/{len(pool)} nesta sessão · "
+                    f"faltam {faltam_responder}/{total_jog} no filtro"
                 )
 
                 escolha = mostrar_pergunta(q, key_suffix=f"prat_{q['id']}")
@@ -806,10 +853,15 @@ elif st.session_state.pagina == "pratica_livre":
                         if st.button("Avançar →", type="primary", use_container_width=True):
                             st.session_state.pratica_respondido = False
                             st.session_state.pop("pratica_acertou", None)
-                            if pool:
-                                st.session_state.pratica_atual = random.choice(pool)["id"]
+                            proxima = escolher_proxima_pratica(
+                                pool, historico, atual_id=q["id"]
+                            )
+                            if proxima is not None:
+                                st.session_state.pratica_atual = proxima
+                                st.session_state.pop("pratica_sessao_completa", None)
                             else:
                                 st.session_state.pop("pratica_atual", None)
+                                st.session_state.pratica_sessao_completa = True
                             st.rerun()
 
         if st.button("← Voltar ao Início", use_container_width=True):
