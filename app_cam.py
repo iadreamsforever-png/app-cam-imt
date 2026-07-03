@@ -586,7 +586,7 @@ def atualizar_estatisticas_global(q, acertou, reverso=False):
             st.session_state.acertos += 1
         else:
             st.session_state.erros += 1
-        st.session_state.perguntas_vistas.add(q["id"])
+        st.session_state.perguntas_vistas.add(id_questao(q))
 
 def registar_resposta_simulacao(q, escolha, indice):
     acertou = escolha.lower() == q["resposta_correta"].lower()
