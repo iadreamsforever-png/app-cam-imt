@@ -10,7 +10,14 @@ from components.progress_store import progress_store
 
 BASE_DIR = Path(__file__).parent
 PROGRESSO_FICHEIRO = BASE_DIR / ".streamlit" / "progresso_cam.json"
-PROGRESSO_STORAGE_KEY = "cam_imt_progresso_v1"
+PROGRESSO_STORAGE_KEY = "cam_imt_progresso_v2"
+PROGRESSO_STORAGE_KEY_V1 = "cam_imt_progresso_v1"
+
+
+def id_questao(valor) -> int:
+    if isinstance(valor, dict):
+        return int(valor["id"])
+    return int(valor)
 
 st.set_page_config(page_title="Simulados CAM - IMT", page_icon="🚛", layout="centered")
 
@@ -52,20 +59,24 @@ def exportar_progresso() -> dict:
     vistas = st.session_state.get("perguntas_vistas", set())
     usadas = st.session_state.get("simulacao_usadas", set())
     return {
-        "v": 1,
+        "v": 2,
         "atualizado": time.time(),
         "acertos": int(st.session_state.get("acertos", 0)),
         "erros": int(st.session_state.get("erros", 0)),
-        "perguntas_vistas": sorted(int(x) for x in vistas),
-        "simulacao_usadas": sorted(int(x) for x in usadas),
+        "perguntas_vistas": sorted(id_questao(x) for x in vistas),
+        "simulacao_usadas": sorted(id_questao(x) for x in usadas),
     }
 
 
 def aplicar_progresso(dados: dict):
     st.session_state.acertos = int(dados.get("acertos", 0))
     st.session_state.erros = int(dados.get("erros", 0))
-    st.session_state.perguntas_vistas = set(int(x) for x in dados.get("perguntas_vistas", []))
-    st.session_state.simulacao_usadas = set(int(x) for x in dados.get("simulacao_usadas", []))
+    st.session_state.perguntas_vistas = {
+        id_questao(x) for x in dados.get("perguntas_vistas", []) or []
+    }
+    st.session_state.simulacao_usadas = {
+        id_questao(x) for x in dados.get("simulacao_usadas", []) or []
+    }
 
 
 def ler_progresso_ficheiro():
@@ -85,11 +96,27 @@ def gravar_progresso_ficheiro(dados: dict):
     )
 
 
-def escolher_progresso_mais_recente(*fontes):
+def fundir_progresso(*fontes):
+    """Combina ficheiro e browser sem perder avanço de simulações."""
     validas = [f for f in fontes if isinstance(f, dict) and "v" in f]
     if not validas:
         return None
-    return max(validas, key=lambda f: float(f.get("atualizado", 0)))
+
+    base = max(validas, key=lambda f: float(f.get("atualizado", 0)))
+    vistas = set()
+    usadas = set()
+    for f in validas:
+        vistas.update(id_questao(x) for x in f.get("perguntas_vistas", []) or [])
+        usadas.update(id_questao(x) for x in f.get("simulacao_usadas", []) or [])
+
+    return {
+        "v": 2,
+        "atualizado": time.time(),
+        "acertos": int(base.get("acertos", 0)),
+        "erros": int(base.get("erros", 0)),
+        "perguntas_vistas": sorted(vistas),
+        "simulacao_usadas": sorted(usadas),
+    }
 
 
 def salvar_progresso():
@@ -108,6 +135,18 @@ def limpar_progresso_persistido():
     if PROGRESSO_FICHEIRO.exists():
         PROGRESSO_FICHEIRO.unlink(missing_ok=True)
     progress_store(action="clear", storage_key=PROGRESSO_STORAGE_KEY)
+    progress_store(action="clear", storage_key=PROGRESSO_STORAGE_KEY_V1)
+
+
+def garantir_simulacao_persistida(perguntas=None):
+    """Garante que as questões sorteadas ficam marcadas como usadas."""
+    usadas = st.session_state.simulacao_usadas
+    fonte = perguntas
+    if fonte is None:
+        fonte = st.session_state.get("simulacao_perguntas", [])
+    for q in fonte:
+        usadas.add(id_questao(q))
+    salvar_progresso()
 
 
 def inicializar_progresso():
@@ -115,15 +154,16 @@ def inicializar_progresso():
         return
 
     ficheiro = ler_progresso_ficheiro()
-    browser_raw = progress_store(action="get", storage_key=PROGRESSO_STORAGE_KEY, default=None)
-    browser = None
-    if browser_raw:
-        try:
-            browser = json.loads(browser_raw)
-        except json.JSONDecodeError:
-            browser = None
+    browser_fontes = []
+    for storage_key in (PROGRESSO_STORAGE_KEY, PROGRESSO_STORAGE_KEY_V1):
+        browser_raw = progress_store(action="get", storage_key=storage_key, default=None)
+        if browser_raw:
+            try:
+                browser_fontes.append(json.loads(browser_raw))
+            except json.JSONDecodeError:
+                pass
 
-    dados = escolher_progresso_mais_recente(ficheiro, browser)
+    dados = fundir_progresso(ficheiro, *browser_fontes)
     if dados:
         aplicar_progresso(dados)
     else:
@@ -412,8 +452,11 @@ def deduplicar_perguntas(records):
 
 def criar_conjunto_simulacao(pool, excluir_ids=None, total=SIMULACAO_TOTAL):
     """Sorteia questões únicas; exclui as já usadas em simulações anteriores."""
-    excluir = excluir_ids or set()
-    pool = [q for q in pool if resposta_valida(q) and q.get("id") not in excluir]
+    excluir = {id_questao(x) for x in (excluir_ids or set())}
+    pool = [
+        q for q in pool
+        if resposta_valida(q) and id_questao(q) not in excluir
+    ]
     unicas = deduplicar_perguntas(pool)
     n = min(total, len(unicas))
     if n <= 0:
@@ -486,7 +529,7 @@ def iniciar_simulacao():
     usadas = st.session_state.simulacao_usadas
     st.session_state.simulacao_perguntas = criar_conjunto_simulacao(pool, excluir_ids=usadas)
     for q in st.session_state.simulacao_perguntas:
-        usadas.add(q["id"])
+        usadas.add(id_questao(q))
     st.session_state.indice = 0
     st.session_state.acertos_sim = 0
     st.session_state.simulacao_respostas = []
@@ -528,7 +571,7 @@ def processar_resposta(q, escolha):
         st.session_state.acertos += 1
     else:
         st.session_state.erros += 1
-    st.session_state.perguntas_vistas.add(q["id"])
+    st.session_state.perguntas_vistas.add(id_questao(q))
     salvar_progresso()
     return acertou
 
@@ -635,8 +678,8 @@ if st.session_state.pagina == "inicio":
         unsafe_allow_html=True,
     )
     funcionais = obter_perguntas_funcionais()
-    usadas_sim = st.session_state.simulacao_usadas
-    restantes_sim = len([q for q in funcionais if q["id"] not in usadas_sim])
+    usadas_sim = {id_questao(x) for x in st.session_state.simulacao_usadas}
+    restantes_sim = len([q for q in funcionais if id_questao(q) not in usadas_sim])
     n_sim = min(SIMULACAO_TOTAL, restantes_sim)
     st.caption(
         f"Base: {len(funcionais)} questões funcionais · "
@@ -686,6 +729,7 @@ if st.session_state.pagina == "inicio":
         st.rerun()
 
     if st.button("🔒 Terminar sessão", use_container_width=True):
+        salvar_progresso()
         st.session_state.autenticado = False
         st.rerun()
 
@@ -731,6 +775,7 @@ elif st.session_state.pagina == "simulacao":
                 st.rerun()
 
     else:
+        garantir_simulacao_persistida()
         st.balloons()
         percent = (st.session_state.acertos_sim / total_sim) * 100
         st.header("🎯 Resultado Final")
@@ -755,11 +800,13 @@ elif st.session_state.pagina == "simulacao":
             st.rerun()
 
         if st.button("Voltar ao Início", use_container_width=True):
+            garantir_simulacao_persistida()
             limpar_simulacao()
             ir_para("inicio")
 
     if st.session_state.indice < total_sim:
         if st.button("← Voltar ao Início", use_container_width=True):
+            garantir_simulacao_persistida()
             limpar_simulacao()
             ir_para("inicio")
 
